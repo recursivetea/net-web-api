@@ -1,139 +1,77 @@
-﻿using Net.Web.Api.Sdk.Documentation.Attributes;
+using System.Linq;
+using Microsoft.OpenApi.Models;
+using Net.Web.Api.Sdk.Documentation.Attributes;
 using Net.Web.Api.Sdk.Documentation.Constants;
 using Net.Web.Api.Sdk.Security.Attributes;
-using Swashbuckle.Swagger;
-using System.Linq;
-using System.Web.Http;
-using System.Web.Http.Description;
+using Swashbuckle.AspNetCore.SwaggerGen;
 
 namespace Net.Web.Api.Sdk.Documentation.Filters
 {
-    /// <inheritdoc />
     /// <summary>
-    /// Class SwaggerSecurityTypeAttributeFilter.
+    /// Swagger operation filter that adds security type descriptions from <see cref="SwaggerSecurityTypeAttribute"/>.
     /// </summary>
     public class SwaggerSecurityTypeAttributeFilter : IOperationFilter
     {
-        #region IOperationFilter Implementation
-
         /// <inheritdoc />
-        /// <summary>
-        /// Applies the specified operation.
-        /// </summary>
-        /// <param name="operation">The operation.</param>
-        /// <param name="schemaRegistry">The schema registry.</param>
-        /// <param name="apiDescription">The API description.</param>
-        /// <exception cref="T:System.NotImplementedException"></exception>
-        public void Apply(Operation operation, SchemaRegistry schemaRegistry, ApiDescription apiDescription)
+        public void Apply(OpenApiOperation operation, OperationFilterContext context)
         {
-            var securityType = GetSecurityType(apiDescription);
+            var securityType = GetSecurityType(context);
 
             if (!string.IsNullOrEmpty(securityType))
             {
-                operation.description = securityType;
+                operation.Description = securityType;
             }
             else
             {
-                var attr = apiDescription.GetControllerAndActionAttributes<SwaggerSecurityTypeAttribute>().FirstOrDefault();
+                var attr = context.MethodInfo.GetCustomAttributes(typeof(SwaggerSecurityTypeAttribute), true)
+                    .Cast<SwaggerSecurityTypeAttribute>()
+                    .FirstOrDefault();
 
                 if (attr != null)
-                {
-                    operation.description = attr.SecurityType;
-                }
+                    operation.Description = attr.SecurityType;
             }
         }
 
-        #endregion
-
-        #region Private Methods
-
-        /// <summary>
-        /// Gets the type of the security.
-        /// </summary>
-        /// <param name="apiDescription">The API description.</param>
-        /// <returns>System.String.</returns>
-        private static string GetSecurityType(ApiDescription apiDescription)
+        private static string? GetSecurityType(OperationFilterContext context)
         {
-            var actionDescription = apiDescription.ActionDescriptor;
-            var controllerDescriptor = actionDescription?.ControllerDescriptor;
+            var methodInfo = context.MethodInfo;
+            var controllerType = methodInfo.DeclaringType;
 
-            if (controllerDescriptor == null)
-            {
-                return null;
-            }
+            if (controllerType == null) return null;
 
-            var controllerType = controllerDescriptor.ControllerType;
-
-            if (controllerType == null)
-            {
-                return null;
-            }
-
-            var actionName = actionDescription.ActionName;
-
-            if (string.IsNullOrEmpty(actionName))
-            {
-                return null;
-            }
-
-            var actionMethod = controllerType.GetMethod(actionName);
-
-            if (actionMethod == null)
-            {
-                return null;
-            }
-
-            var customAttribute = actionMethod.GetCustomAttributes(typeof(AllowAnonymousAttribute), true).FirstOrDefault();
-
-            if (customAttribute != null)
-            {
+            // Check method-level attributes first
+            if (methodInfo.GetCustomAttributes(typeof(Microsoft.AspNetCore.Authorization.AllowAnonymousAttribute), true).Any())
                 return SwaggerSecurityTypeConstants.ANONYMOUS;
-            }
 
-            customAttribute = actionMethod.GetCustomAttributes(typeof(TokenAuthorizeAttribute), true).FirstOrDefault();
+            var tokenAttr = methodInfo.GetCustomAttributes(typeof(TokenAuthorizeAttribute), true)
+                .Cast<TokenAuthorizeAttribute>()
+                .FirstOrDefault();
 
-            if (customAttribute != null)
-            {
-                return SwaggerSecurityTypeConstants.TOKEN_SECURED + GetIntendedAudiences(customAttribute);
-            }
+            if (tokenAttr != null)
+                return SwaggerSecurityTypeConstants.TOKEN_SECURED + GetIntendedAudiences(tokenAttr);
 
-            customAttribute = actionMethod.GetCustomAttributes(typeof(BasicAuthorizeAttribute), true).FirstOrDefault();
-
-            if (customAttribute != null)
-            {
+            if (methodInfo.GetCustomAttributes(typeof(BasicAuthorizeAttribute), true).Any())
                 return SwaggerSecurityTypeConstants.BASIC_SECURED;
-            }
 
-            customAttribute = controllerType.GetCustomAttributes(typeof(AllowAnonymousAttribute), true).FirstOrDefault();
-
-            if (customAttribute != null)
-            {
+            // Check controller-level attributes
+            if (controllerType.GetCustomAttributes(typeof(Microsoft.AspNetCore.Authorization.AllowAnonymousAttribute), true).Any())
                 return SwaggerSecurityTypeConstants.ANONYMOUS;
-            }
 
-            customAttribute = controllerType.GetCustomAttributes(typeof(TokenAuthorizeAttribute), true).FirstOrDefault();
+            var controllerTokenAttr = controllerType.GetCustomAttributes(typeof(TokenAuthorizeAttribute), true)
+                .Cast<TokenAuthorizeAttribute>()
+                .FirstOrDefault();
 
-            return customAttribute != null
-                ? SwaggerSecurityTypeConstants.TOKEN_SECURED + GetIntendedAudiences(customAttribute)
-                : SwaggerSecurityTypeConstants.ANONYMOUS;
+            if (controllerTokenAttr != null)
+                return SwaggerSecurityTypeConstants.TOKEN_SECURED + GetIntendedAudiences(controllerTokenAttr);
+
+            return SwaggerSecurityTypeConstants.ANONYMOUS;
         }
 
-        /// <summary>
-        /// Gets the intended audiences.
-        /// </summary>
-        /// <returns>System.String.</returns>
-        private static string GetIntendedAudiences(object attribute)
+        private static string GetIntendedAudiences(TokenAuthorizeAttribute attr)
         {
-            if (!(attribute is TokenAuthorizeAttribute tokenAuthorizeAttribute))
-            {
-                return string.Empty;
-            }
-
-            var audienceString = tokenAuthorizeAttribute.IntendedAudiences;
-
-            return string.IsNullOrEmpty(audienceString) ? string.Empty : $"<br/>Intended Audience(s): {audienceString}";
+            return string.IsNullOrEmpty(attr.IntendedAudiences)
+                ? string.Empty
+                : $"<br/>Intended Audience(s): {attr.IntendedAudiences}";
         }
-
-        #endregion
     }
 }

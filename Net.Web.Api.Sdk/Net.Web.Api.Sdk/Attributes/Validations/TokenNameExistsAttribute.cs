@@ -1,41 +1,31 @@
-﻿using Net.Web.Api.Sdk.Injection.Containers;
-using Net.Web.Api.Sdk.Interfaces.Token;
-using Net.Web.Api.Sdk.Properties;
 using System;
 using System.ComponentModel.DataAnnotations;
+using Microsoft.Extensions.DependencyInjection;
+using Net.Web.Api.Sdk.Interfaces.Token;
+using Net.Web.Api.Sdk.Properties;
 
 namespace Net.Web.Api.Sdk.Attributes.Validations
 {
     /// <summary>
-    /// Class TokenNameExistsAttribute.
-    /// Implements the <see cref="ValidationAttribute" />
+    /// Validates that the token name exists in the configured token definitions.
     /// </summary>
-    /// <seealso cref="ValidationAttribute" />
     [AttributeUsage(AttributeTargets.Property)]
     public class TokenNameExistsAttribute : ValidationAttribute
     {
-        #region ValidationAttribute Overrides
-
-        /// <summary>
-        /// Validates the specified value with respect to the current validation attribute.
-        /// </summary>
-        /// <param name="value">The value to validate.</param>
-        /// <param name="validationContext">The context information about the validation operation.</param>
-        /// <returns>An instance of the <see cref="T:System.ComponentModel.DataAnnotations.ValidationResult" /> class.</returns>
-        protected override ValidationResult IsValid(object value, ValidationContext validationContext)
+        /// <inheritdoc />
+        protected override ValidationResult? IsValid(object? value, ValidationContext validationContext)
         {
-            var service = InjectionContainer.Instance.GetService<IJwtTokenService>();
-            var tokenName = value != null ? value.ToString().Trim().ToUpper() : string.Empty;
+            var service = validationContext.GetService<IJwtTokenService>();
+
+            if (service == null)
+                return ValidationResult.Success;
+
+            var tokenName = value?.ToString()?.Trim().ToUpper() ?? string.Empty;
             var exists = service.Tokens.ContainsKey(tokenName);
 
-            if(exists)
-            {
-                return ValidationResult.Success;
-            }
-
-            return new ValidationResult(string.Format(Resources.TokenNameNotFound, tokenName));
+            return exists
+                ? ValidationResult.Success
+                : new ValidationResult(string.Format(Resources.TokenNameNotFound, tokenName));
         }
-
-        #endregion
     }
 }

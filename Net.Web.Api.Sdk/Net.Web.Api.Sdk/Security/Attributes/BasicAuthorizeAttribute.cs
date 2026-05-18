@@ -1,38 +1,22 @@
-﻿using Net.Web.Api.Sdk.Common.Http;
-using Net.Web.Api.Sdk.Extensions;
-using Newtonsoft.Json;
-using Newtonsoft.Json.Serialization;
 using System;
 using System.Collections.Generic;
-using System.Net;
-using System.Net.Http.Formatting;
 using System.Security.Principal;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
-using System.Web.Http.Filters;
+using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.Mvc.Filters;
 
 namespace Net.Web.Api.Sdk.Security.Attributes
 {
     /// <summary>
-    /// Class BasicAuthorizeAttribute.
-    /// Implements the <see cref="Attribute" />
-    /// Implements the <see cref="IAuthenticationFilter" />
+    /// Abstract base class for Basic authentication authorization filters.
     /// </summary>
-    /// <seealso cref="Attribute" />
-    /// <seealso cref="IAuthenticationFilter" />
-    public abstract class BasicAuthorizeAttribute : Attribute, IAuthenticationFilter
+    public abstract class BasicAuthorizeAttribute : Attribute, IAsyncAuthorizationFilter
     {
         #region Internal Constants
 
-        /// <summary>
-        /// The authorization basic
-        /// </summary>
         internal const string AUTHORIZATION_BASIC = "Basic";
-
-        /// <summary>
-        /// The realm
-        /// </summary>
         internal const string REALM = "realm";
 
         #endregion
@@ -40,145 +24,89 @@ namespace Net.Web.Api.Sdk.Security.Attributes
         #region Public Properties
 
         /// <summary>
-        /// Gets or sets a value indicating whether [enable challenge].
+        /// Gets or sets a value indicating whether to send a WWW-Authenticate challenge.
         /// </summary>
-        /// <value><c>true</c> if [enable challenge]; otherwise, <c>false</c>.</value>
         public bool EnableChallenge { get; set; }
 
         /// <summary>
         /// Gets or sets the realm.
         /// </summary>
-        /// <value>The realm.</value>
-        public string Realm { get; set; }
+        public string? Realm { get; set; }
 
         #endregion
 
-        #region Private Properties
+        #region Abstract Methods
 
         /// <summary>
-        /// The default formatter
+        /// Authenticates the user with the provided credentials.
         /// </summary>
-        private static readonly JsonMediaTypeFormatter _defaultFormatter = new JsonMediaTypeFormatter
-        {
-            SerializerSettings =
-            {
-                DateFormatHandling = DateFormatHandling.MicrosoftDateFormat,
-                DateTimeZoneHandling = DateTimeZoneHandling.Local,
-                ContractResolver = new CamelCasePropertyNamesContractResolver()
-            }
-        };
+        protected abstract Task<IPrincipal?> AuthenticateAsync(string userName, string password, CancellationToken cancellationToken, IList<string> authenticationResult);
 
         #endregion
 
-        #region Abscrtact Methods
-
-        /// <summary>
-        /// Authenticates the asynchronous.
-        /// </summary>
-        /// <param name="userName">Name of the user.</param>
-        /// <param name="password">The password.</param>
-        /// <param name="cancellationToken">The cancellation token.</param>
-        /// <param name="authenticationResult">The authentication result.</param>
-        /// <returns>Task&lt;IPrincipal&gt;.</returns>
-        protected abstract Task<IPrincipal> AuthenticateAsync(string userName, string password, CancellationToken cancellationToken, IList<string> authenticationResult);
-
-        #endregion
-
-        #region Attribute Overrides
+        #region IAsyncAuthorizationFilter Implementation
 
         /// <inheritdoc />
-        /// <summary>
-        /// Gets or sets a value indicating whether more than one instance of the indicated attribute can be specified for a single program element.
-        /// </summary>
-        /// <value><c>true</c> if [allow multiple]; otherwise, <c>false</c>.</value>
-        public virtual bool AllowMultiple => false;
-
-        #endregion
-
-        #region IAuthenticationFilter Implementations
-
-        /// <summary>
-        /// authenticate as an asynchronous operation.
-        /// </summary>
-        /// <param name="context">The authentication context.</param>
-        /// <param name="cancellationToken">The token to monitor for cancellation requests.</param>
-        /// <returns>A Task that will perform authentication.</returns>
-        public async Task AuthenticateAsync(HttpAuthenticationContext context, CancellationToken cancellationToken)
+        public async Task OnAuthorizationAsync(AuthorizationFilterContext context)
         {
-            var request = context.Request;
-            var authorization = request.Headers.Authorization;
+            var request = context.HttpContext.Request;
+            var authHeader = request.Headers.Authorization.ToString();
 
-            if (authorization == null)
+            if (string.IsNullOrEmpty(authHeader))
             {
-                context.ErrorResult = new ResponseActionResult(request, HttpStatusCode.Forbidden);
-
+                context.Result = new StatusCodeResult(403);
                 return;
             }
 
-            if (!AUTHORIZATION_BASIC.Equals(authorization.Scheme))
+            if (!authHeader.StartsWith(AUTHORIZATION_BASIC + " ", StringComparison.OrdinalIgnoreCase))
             {
-                context.ErrorResult = new ResponseActionResult(request, HttpStatusCode.Forbidden);
-
+                context.Result = new StatusCodeResult(403);
                 return;
             }
 
-            if (string.IsNullOrEmpty(authorization.Parameter))
-            {
-                context.ErrorResult = new ResponseActionResult(request, HttpStatusCode.Unauthorized);
+            var parameter = authHeader.Substring(AUTHORIZATION_BASIC.Length + 1).Trim();
 
+            if (string.IsNullOrEmpty(parameter))
+            {
+                context.Result = new StatusCodeResult(401);
                 return;
             }
 
-            var userNameAndPasword = ExtractUserNameAndPassword(authorization.Parameter);
+            var userNameAndPassword = ExtractUserNameAndPassword(parameter);
 
-            if (userNameAndPasword == null)
+            if (userNameAndPassword == null)
             {
-                context.ErrorResult = new ResponseActionResult(request, HttpStatusCode.Unauthorized);
-
+                context.Result = new StatusCodeResult(401);
                 return;
             }
 
             var authenticationResult = new List<string>();
-            var userName = userNameAndPasword.Item1;
-            var password = userNameAndPasword.Item2;
-            var principal = await AuthenticateAsync(userName, password, cancellationToken, authenticationResult);
+            var principal = await AuthenticateAsync(userNameAndPassword.Item1, userNameAndPassword.Item2,
+                context.HttpContext.RequestAborted, authenticationResult);
 
             if (principal == null)
             {
-                context.ErrorResult = new ResponseActionResult(request, HttpStatusCode.Unauthorized, authenticationResult);
+                if (EnableChallenge)
+                {
+                    var challengeParam = string.IsNullOrEmpty(Realm) ? null : $@"{REALM}=""{Realm}""";
+                    var challenge = string.IsNullOrEmpty(challengeParam)
+                        ? AUTHORIZATION_BASIC
+                        : $"{AUTHORIZATION_BASIC} {challengeParam}";
+                    context.HttpContext.Response.Headers.WWWAuthenticate = challenge;
+                }
+                context.Result = new UnauthorizedObjectResult(authenticationResult);
             }
             else
             {
-                context.Principal = principal;
+                context.HttpContext.User = (System.Security.Claims.ClaimsPrincipal)principal;
             }
-        }
-
-        /// <summary>
-        /// Challenges the asynchronous.
-        /// </summary>
-        /// <param name="context">The context.</param>
-        /// <param name="cancellationToken">The cancellation token.</param>
-        /// <returns>Task.</returns>
-        public Task ChallengeAsync(HttpAuthenticationChallengeContext context, CancellationToken cancellationToken)
-        {
-            if (EnableChallenge)
-            {
-                Challenge(context);
-            }
-
-            return Task.FromResult(0);
         }
 
         #endregion
 
         #region Private Methods
 
-        /// <summary>
-        /// Extracts the user name and password.
-        /// </summary>
-        /// <param name="authorizationParameter">The authorization parameter.</param>
-        /// <returns>TupleModel&lt;System.String, System.String&gt;.</returns>
-        private static Tuple<string, string> ExtractUserNameAndPassword(string authorizationParameter)
+        private static Tuple<string, string>? ExtractUserNameAndPassword(string authorizationParameter)
         {
             byte[] credentialBytes;
 
@@ -192,9 +120,7 @@ namespace Net.Web.Api.Sdk.Security.Attributes
             }
 
             var encoding = Encoding.ASCII;
-
             encoding = (Encoding)encoding.Clone();
-
             encoding.DecoderFallback = DecoderFallback.ExceptionFallback;
 
             string decodedCredentials;
@@ -208,33 +134,16 @@ namespace Net.Web.Api.Sdk.Security.Attributes
                 return null;
             }
 
-            if (string.IsNullOrEmpty(decodedCredentials))
-            {
-                return null;
-            }
+            if (string.IsNullOrEmpty(decodedCredentials)) return null;
 
             var colonIndex = decodedCredentials.IndexOf(':');
 
-            if (colonIndex == -1)
-            {
-                return null;
-            }
+            if (colonIndex == -1) return null;
 
             var userName = decodedCredentials.Substring(0, colonIndex);
             var password = decodedCredentials.Substring(colonIndex + 1);
 
             return new Tuple<string, string>(userName, password);
-        }
-
-        /// <summary>
-        /// Challenges the specified context.
-        /// </summary>
-        /// <param name="context">The context.</param>
-        private void Challenge(HttpAuthenticationChallengeContext context)
-        {
-            var parameter = string.IsNullOrEmpty(Realm) ? null : $@"{REALM}="" + Realm + @""";
-
-            context.ChallengeWith(AUTHORIZATION_BASIC, parameter);
         }
 
         #endregion

@@ -1,44 +1,33 @@
-﻿using System;
-using Castle.Windsor;
+using System;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace Net.Web.Api.Sdk.Injection.Containers
 {
     /// <summary>
     /// Class InjectionContainer. This class cannot be inherited.
+    /// Provides a singleton accessor to the service provider for use in non-DI contexts.
     /// </summary>
     public sealed class InjectionContainer
     {
         #region Singleton
 
-        /// <summary>
-        /// The lazy
-        /// </summary>
         private static readonly Lazy<InjectionContainer> _lazy = new Lazy<InjectionContainer>(() => new InjectionContainer());
 
         /// <summary>
         /// Gets the instance.
         /// </summary>
-        /// <value>
-        /// The instance.
-        /// </value>
         public static InjectionContainer Instance => _lazy.Value;
 
         #endregion
 
         #region Private Properties
 
-        /// <summary>
-        /// The container
-        /// </summary>
-        private IWindsorContainer _container;
+        private IServiceProvider? _serviceProvider;
 
         #endregion
 
         #region Constructors
 
-        /// <summary>
-        /// Prevents a default instance of the <see cref="InjectionContainer"/> class from being created.
-        /// </summary>
         private InjectionContainer() { }
 
         #endregion
@@ -46,37 +35,21 @@ namespace Net.Web.Api.Sdk.Injection.Containers
         #region Public Methods
 
         /// <summary>
-        /// Sets the container.
+        /// Sets the service provider.
         /// </summary>
-        /// <param name="container">The container.</param>
-        public void SetContainer(IWindsorContainer container)
+        public void SetServiceProvider(IServiceProvider serviceProvider)
         {
-            _container = container;
+            _serviceProvider = serviceProvider;
         }
 
         /// <summary>
         /// Gets the service.
         /// </summary>
-        /// <typeparam name="T"></typeparam>
-        /// <returns>T.</returns>
-        public T GetService<T>()
+        public T? GetService<T>() where T : class
         {
-            return _container.Resolve<T>();
+            return _serviceProvider?.GetService<T>();
         }
 
         #endregion
-
-        #region Internal Methods
-
-        /// <summary>
-        /// Disposes the container.
-        /// </summary>
-        internal void DisposeContainer()
-        {
-            _container?.Dispose();
-        }
-
-        #endregion
-
     }
 }

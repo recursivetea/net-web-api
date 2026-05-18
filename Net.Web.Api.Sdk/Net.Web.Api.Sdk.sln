@@ -1,9 +1,9 @@
-﻿
+
 Microsoft Visual Studio Solution File, Format Version 12.00
 # Visual Studio Version 16
 VisualStudioVersion = 16.0.29503.13
 MinimumVisualStudioVersion = 10.0.40219.1
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Net.Web.Api.Sdk", "Net.Web.Api.Sdk\Net.Web.Api.Sdk.csproj", "{8066974C-E366-4365-AC39-579D022939BE}"
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Net.Web.Api.Sdk", "Net.Web.Api.Sdk\Net.Web.Api.Sdk.csproj", "{8066974C-E366-4365-AC39-579D022939BE}"
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Net.Web.Api.Sdk.Web.Examples", "Net.Web.Api.Sdk.Web.Examples\Net.Web.Api.Sdk.Web.Examples.csproj", "{1120EB9E-6A89-4321-BCAB-49809162CF45}"
 EndProject
