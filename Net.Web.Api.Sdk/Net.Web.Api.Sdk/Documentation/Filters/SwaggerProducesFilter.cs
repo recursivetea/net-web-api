@@ -1,39 +1,34 @@
-﻿using Net.Web.Api.Sdk.Documentation.Attributes;
-using Swashbuckle.Swagger;
 using System.Linq;
-using System.Web.Http.Description;
+using Microsoft.OpenApi.Models;
+using Net.Web.Api.Sdk.Documentation.Attributes;
+using Swashbuckle.AspNetCore.SwaggerGen;
 
 namespace Net.Web.Api.Sdk.Documentation.Filters
 {
-    /// <inheritdoc />
     /// <summary>
-    /// Class SwaggerProducesFilter.
+    /// Swagger operation filter that sets the produces content types from <see cref="SwaggerProducesAttribute"/>.
     /// </summary>
     public class SwaggerProducesFilter : IOperationFilter
     {
-        #region IOperationFilter Implementations
-
         /// <inheritdoc />
-        /// <summary>
-        /// Applies the specified operation.
-        /// </summary>
-        /// <param name="operation">The operation.</param>
-        /// <param name="schemaRegistry">The schema registry.</param>
-        /// <param name="apiDescription">The API description.</param>
-        /// <exception cref="T:System.NotImplementedException"></exception>
-        public void Apply(Operation operation, SchemaRegistry schemaRegistry, ApiDescription apiDescription)
+        public void Apply(OpenApiOperation operation, OperationFilterContext context)
         {
-            var attribute = apiDescription.GetControllerAndActionAttributes<SwaggerProducesAttribute>().SingleOrDefault();
+            var attribute = context.MethodInfo.GetCustomAttributes(typeof(SwaggerProducesAttribute), true)
+                .Concat(context.MethodInfo.DeclaringType?.GetCustomAttributes(typeof(SwaggerProducesAttribute), true) ?? System.Array.Empty<object>())
+                .Cast<SwaggerProducesAttribute>()
+                .FirstOrDefault();
 
-            if (attribute == null)
+            if (attribute == null) return;
+
+            foreach (var response in operation.Responses.Values)
             {
-                return;
+                var existingContent = response.Content.Keys.ToList();
+                foreach (var key in existingContent)
+                    response.Content.Remove(key);
+
+                foreach (var contentType in attribute.ContentTypes)
+                    response.Content[contentType] = new OpenApiMediaType();
             }
-
-            operation.produces.Clear();
-            operation.produces = attribute.ContentTypes.ToList();
         }
-
-        #endregion
     }
 }
